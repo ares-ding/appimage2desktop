@@ -22,9 +22,9 @@
 ### 下载
 
 ```bash
-wget -O appimage-shortcut.py https://raw.githubusercontent.com/your-repo/appimage-shortcut/main/appimage-shortcut.py
+wget -O appimage-shortcut.py https://raw.githubusercontent.com/ares-ding/appimage2shortcut/main/appimage-shortcut.py
 # 或直接克隆仓库
-git clone https://github.com/your-repo/appimage-shortcut.git
+git clone https://github.com/ares-ding/appimage2shortcut.git
 ```
 
 ### 基本用法
