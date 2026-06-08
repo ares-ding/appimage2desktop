@@ -75,7 +75,6 @@ sudo ./appimage-shortcut.py --remove --name Slack --system
 # 先预览会删除哪些文件，再决定
 ./appimage-shortcut.py --remove --name MyApp --dry-run
 ```
-```
 
 ## 参数说明
 
@@ -188,6 +187,3 @@ sudo apt install libfuse2
 - **FUSE 库** — AppImage 运行时需要（`libfuse2`）
 - **`update-desktop-database`** — 可选，用于刷新菜单（通常在 `desktop-file-utils` 包中）
 
-## 许可证
-
-MIT License
