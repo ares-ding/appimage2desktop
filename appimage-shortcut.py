@@ -18,6 +18,12 @@
     --system              安装到 /usr/share/ （需要 sudo），而非 ~/.local/share/
     --extract-icon        从 AppImage 中提取图标（自动）
     --dry-run             仅预览 .desktop 文件内容，不执行安装
+    --remove              删除已安装的快捷方式（可配合 --name 指定名称，或传入 AppImage 自动推断）
+
+  删除快捷方式:
+    ./appimage-shortcut.py --remove --name Obsidian
+    ./appimage-shortcut.py --remove Obsidian-1.8.9.AppImage
+    ./appimage-shortcut.py --remove Slack --system   # 删除系统级快捷方式
 
   示例:
     ./appimage-shortcut.py Obsidian-1.8.9.AppImage
@@ -194,6 +200,144 @@ def create_desktop_content(
     return "\n".join(line for line in lines if line)
 
 
+def _parse_desktop_icon(desktop_path: Path) -> str | None:
+    """从 .desktop 文件中提取 Icon= 的值"""
+    try:
+        for line in desktop_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("Icon="):
+                return line.split("=", 1)[1].strip()
+    except Exception:
+        pass
+    return None
+
+
+def _guess_icon_files(icon_name: str, icons_base: Path) -> list[Path]:
+    """
+    根据图标名称（无扩展名）猜测可能安装的图标文件路径。
+    搜索 apps/ 下各子目录中的匹配文件。
+    """
+    found: list[Path] = []
+    apps_dir = icons_base / "apps"
+    if not apps_dir.is_dir():
+        return found
+    for size_dir in apps_dir.iterdir():
+        if size_dir.is_dir():
+            for f in size_dir.iterdir():
+                if f.stem == icon_name:
+                    found.append(f)
+    # 也搜索 scalable/apps/
+    scalable = icons_base / "scalable" / "apps"
+    if scalable.is_dir():
+        for f in scalable.iterdir():
+            if f.stem == icon_name:
+                found.append(f)
+    return found
+
+
+def _cleanup_empty_dirs(path: Path) -> None:
+    """递归删除空目录（不会删除根级目录）"""
+    try:
+        if path.is_dir() and not any(path.iterdir()):
+            path.rmdir()
+            log.debug(f"已删除空目录: {path}")
+            # 继续向上清理
+            _cleanup_empty_dirs(path.parent)
+    except (PermissionError, OSError):
+        pass
+
+
+def remove_shortcut(
+    name: str,
+    *,
+    system: bool = False,
+    dry_run: bool = False,
+) -> int:
+    """
+    删除指定名称的 .desktop 快捷方式及其关联图标。
+    返回 0 表示成功，1 表示未找到。
+    """
+    if system:
+        apps_dir = SYSTEM_APPLICATIONS_DIR
+        icons_base = SYSTEM_ICONS_DIR
+        prefix = "系统"
+    else:
+        apps_dir = APPLICATIONS_DIR
+        icons_base = ICONS_DIR
+        prefix = "用户"
+
+    # 查找 .desktop 文件（精确匹配或带编号的后备匹配）
+    desktop_files: list[Path] = []
+    # 精确匹配
+    exact = apps_dir / f"{name}.desktop"
+    if exact.is_file():
+        desktop_files.append(exact)
+    else:
+        # 模糊匹配：{name}-数字.desktop
+        for f in apps_dir.glob(f"{name}-*.desktop"):
+            desktop_files.append(f)
+
+    if not desktop_files:
+        log.error(f"未找到 {prefix}快捷方式「{name}」(.desktop 文件)")
+        return 1
+
+    desktop_file = desktop_files[0]
+    if len(desktop_files) > 1:
+        log.info(f"找到多个匹配，将删除第一个: {desktop_file}")
+
+    # 读取图标信息
+    icon_name = _parse_desktop_icon(desktop_file)
+    icon_files: list[Path] = []
+    if icon_name and not icon_name.startswith("/") and icon_name != "application-x-executable":
+        icon_files = _guess_icon_files(icon_name, icons_base)
+
+    # ---- 执行删除 ----
+    if dry_run:
+        print(f"\n{'=' * 60}")
+        print(f"  [DRY RUN] 将删除以下文件")
+        print(f"{'=' * 60}")
+        print(f"  📄 {desktop_file}")
+        for ic in icon_files:
+            print(f"  🖼  {ic}")
+        print(f"{'=' * 60}\n")
+        return 0
+
+    # 删除 .desktop 文件
+    desktop_file.unlink()
+    log.info(f"已删除快捷方式: {desktop_file}")
+
+    # 删除关联图标
+    for ic in icon_files:
+        try:
+            ic.unlink()
+            log.info(f"已删除图标: {ic}")
+            # 尝试删除空父目录
+            _cleanup_empty_dirs(ic.parent)
+        except FileNotFoundError:
+            pass
+
+    # 更新桌面数据库
+    try:
+        subprocess.run(
+            ["update-desktop-database", str(apps_dir)],
+            capture_output=True,
+            timeout=30,
+        )
+    except FileNotFoundError:
+        log.warning("未找到 update-desktop-database 命令（不影响功能）")
+    except subprocess.TimeoutExpired:
+        pass
+
+    print()
+    print(f"  ✔ 快捷方式「{name}」已删除！")
+    print(f"  📄 删除: {desktop_file}")
+    if icon_files:
+        print(f"  🖼  删除: {len(icon_files)} 个图标文件")
+    print()
+
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # 主逻辑
 # ---------------------------------------------------------------------------
@@ -203,7 +347,8 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument("appimage", type=str, help="AppImage 文件路径")
+    parser.add_argument("appimage", type=str, nargs="?", default=None,
+                        help="AppImage 文件路径（--remove 模式可选）")
     parser.add_argument("--name", type=str, default=None, help="菜单显示名称")
     parser.add_argument("--icon", type=str, default=None, help="图标文件路径")
     parser.add_argument("--category", type=str, default="Utility;", help="桌面分类")
@@ -213,8 +358,17 @@ def main() -> int:
     parser.add_argument("--system", action="store_true", help="安装到系统目录（需 sudo）")
     parser.add_argument("--extract-icon", action="store_true", help="从 AppImage 自动提取图标")
     parser.add_argument("--dry-run", action="store_true", help="仅预览 .desktop 内容")
+    parser.add_argument("--remove", action="store_true", help="删除已安装的快捷方式")
 
     args = parser.parse_args()
+
+    # ---- 删除模式 ----
+    if args.remove:
+        if not args.name and not args.appimage:
+            log.error("使用 --remove 时需要指定 --name 或 AppImage 文件路径")
+            return 1
+        display_name = args.name or sanitize_name(Path(args.appimage).stem)
+        return remove_shortcut(display_name, system=args.system, dry_run=args.dry_run)
 
     # ---- 校验 AppImage 文件 ----
     appimage = Path(args.appimage).resolve()

@@ -14,6 +14,7 @@
 - ✅ **分类管理** — `--category` 指定应用分类（Network / Office / Development / Game 等）
 - ✅ **系统安装** — `--system` 安装到 `/usr/share/`（所有用户可见，需 sudo）
 - ✅ **预览模式** — `--dry-run` 仅显示 `.desktop` 内容，不实际安装
+- ✅ **删除快捷方式** — `--remove` 一键删除已安装的快捷方式及关联图标
 - ✅ **保留原文件** — 复制而非移动（`--no-move` 可完全跳过移动步骤）
 
 ## 快速开始
@@ -59,11 +60,28 @@ sudo ./appimage-shortcut.py TeamViewer.AppImage --system
 ./appimage-shortcut.py MyApp.AppImage --dry-run
 ```
 
+### 删除快捷方式
+
+```bash
+# 按名称删除
+./appimage-shortcut.py --remove --name Obsidian
+
+# 传入 AppImage 文件自动推断名称
+./appimage-shortcut.py --remove Obsidian-1.8.9.AppImage
+
+# 删除系统级快捷方式（配合 --system）
+sudo ./appimage-shortcut.py --remove --name Slack --system
+
+# 先预览会删除哪些文件，再决定
+./appimage-shortcut.py --remove --name MyApp --dry-run
+```
+```
+
 ## 参数说明
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `appimage` | **（必填）** | AppImage 文件路径 |
+| `appimage` | 可选 | AppImage 文件路径（`--remove` 模式下可省略） |
 | `--name` | 文件名（去后缀） | 应用程序菜单中显示的名称 |
 | `--icon` | 自动/默认图标 | 图标文件路径（.png / .svg） |
 | `--category` | `Utility;` | 桌面分类，参考 [Desktop Menu Specification](https://specifications.freedesktop.org/menu-spec/latest/) |
@@ -72,7 +90,8 @@ sudo ./appimage-shortcut.py TeamViewer.AppImage --system
 | `--no-move` | 关闭 | 不把 AppImage 移动到 `~/Applications/` |
 | `--terminal` | 关闭 | 启动时显示终端窗口 |
 | `--system` | 关闭 | 安装到系统目录（需 sudo） |
-| `--dry-run` | 关闭 | 仅预览 `.desktop` 内容，不安装 |
+| `--dry-run` | 关闭 | 预览模式（安装时预览 `.desktop` 内容，删除时预览待删文件） |
+| `--remove` | 关闭 | 删除已安装的快捷方式（需配合 `--name` 或 `appimage` 参数） |
 
 ### 常用 Category 值
 
@@ -88,6 +107,8 @@ sudo ./appimage-shortcut.py TeamViewer.AppImage --system
 
 ## 工作流程
 
+### 安装快捷方式
+
 ```
 AppImage 文件
      │
@@ -97,6 +118,18 @@ AppImage 文件
      ├─ ④ 生成 .desktop 文件 → ~/.local/share/applications/
      ├─ ⑤ 安装图标 → ~/.local/share/icons/hicolor/
      └─ ⑥ 更新桌面数据库 → 应用菜单立即可见 ✓
+```
+
+### 删除快捷方式
+
+```
+快捷方式名称
+     │
+     ├─ ① 查找 .desktop 文件 → ~/.local/share/applications/{Name}.desktop
+     ├─ ② 解析 Icon= 找到关联图标文件
+     ├─ ③ 删除 .desktop 文件
+     ├─ ④ 删除图标文件，清理空目录
+     └─ ⑤ 更新桌面数据库 → 菜单项消失 ✓
 ```
 
 ## 目录结构
@@ -125,8 +158,18 @@ update-desktop-database ~/.local/share/applications/
 
 ### 如何删除快捷方式？
 
+**推荐方式** — 使用 `--remove` 参数一键删除（会自动清理 .desktop 文件和关联图标）：
+
+```bash
+./appimage-shortcut.py --remove --name Obsidian
+sudo ./appimage-shortcut.py --remove --name Slack --system  # 系统级
+```
+
+**手动方式**（或需删除旧版创建的快捷方式）：
+
 ```bash
 rm ~/.local/share/applications/{Name}.desktop
+rm -rf ~/.local/share/icons/hicolor/apps/*/{icon-name}.*   # 如有图标
 update-desktop-database ~/.local/share/applications/
 ```
 
